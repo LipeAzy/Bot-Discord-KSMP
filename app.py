@@ -43,6 +43,9 @@ status_config = {
     "message_id": None
 }
 
+# Adicionar após as outras constantes de ID
+CANAL_STATUS_ADICIONAL = 1370669650559373322
+
 def load_status_config():
     global status_config
     try:
@@ -189,24 +192,43 @@ def create_status_embed(status):
 @tasks.loop(minutes=2)
 async def update_server_status():
     """Atualiza o status do servidor a cada 2 minutos"""
-    if not status_config["channel_id"] or not status_config["message_id"]:
-        return
-
     try:
-        channel = bot.get_channel(status_config["channel_id"])
-        if not channel:
-            return
-
         status = await get_server_status()
         embed = create_status_embed(status)
 
+        # Atualizar mensagem configurada pelo setup_status
+        if status_config["channel_id"] and status_config["message_id"]:
+            try:
+                channel = bot.get_channel(status_config["channel_id"])
+                if channel:
+                    try:
+                        message = await channel.fetch_message(status_config["message_id"])
+                        await message.edit(embed=embed)
+                    except discord.NotFound:
+                        message = await channel.send(embed=embed)
+                        status_config["message_id"] = message.id
+                        save_status_config()
+            except Exception as e:
+                print(f"Erro ao atualizar status no canal principal: {e}")
+
+        # Atualizar canal adicional
         try:
-            message = await channel.fetch_message(status_config["message_id"])
-            await message.edit(embed=embed)
-        except discord.NotFound:
-            message = await channel.send(embed=embed)
-            status_config["message_id"] = message.id
-            save_status_config()
+            canal_adicional = bot.get_channel(CANAL_STATUS_ADICIONAL)
+            if canal_adicional:
+                # Buscar última mensagem do canal
+                async for message in canal_adicional.history(limit=1):
+                    try:
+                        await message.edit(embed=embed)
+                        break
+                    except:
+                        await canal_adicional.send(embed=embed)
+                        break
+                else:
+                    # Se não houver mensagens, enviar uma nova
+                    await canal_adicional.send(embed=embed)
+        except Exception as e:
+            print(f"Erro ao atualizar status no canal adicional: {e}")
+
     except Exception as e:
         print(f"Erro ao atualizar status: {e}")
 
@@ -256,20 +278,6 @@ async def setup_status(ctx):
     
     await ctx.send("✅ Status configurado com sucesso!", delete_after=5)
 
-@bot.event
-async def on_ready():
-    print(f'Bot {bot.user.name} está online!')
-    print(f'ID do Bot: {bot.user.id}')
-    print(f'Current Date and Time (UTC): {CURRENT_TIME}')
-    print(f'Current User\'s Login: {CURRENT_USER}')
-    print('='*30)
-    
-    load_status_config()
-    
-    if not update_server_status.is_running():
-        update_server_status.start()
-    if not update_bot_status.is_running():
-        update_bot_status.start()
 # IDs dos cargos e canal
 CARGO_NAO_REGISTRADO = 1370692084159484055
 CARGO_REGISTRADO = 1370692057227858020
@@ -353,8 +361,18 @@ class BotaoRegistro(ui.View):
 async def on_ready():
     print(f'Bot {bot.user.name} está online!')
     print(f'ID do Bot: {bot.user.id}')
+    print(f'Current Date and Time (UTC): {CURRENT_TIME}')
+    print(f'Current User\'s Login: {CURRENT_USER}')
     print('='*30)
+    
+    # Carregar configurações e iniciar tasks
+    load_status_config()
     bot.add_view(BotaoRegistro())
+    
+    if not update_server_status.is_running():
+        update_server_status.start()
+    if not update_bot_status.is_running():
+        update_bot_status.start()
 
 @bot.event
 async def on_member_join(member):
