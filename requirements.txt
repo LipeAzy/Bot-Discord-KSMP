@@ -4,3 +4,4 @@ mcstatus
 pytz
 yt-dlp
 requests
+pynacl
