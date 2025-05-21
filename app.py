@@ -12,6 +12,10 @@ import base64
 from io import BytesIO
 import aiohttp
 import random
+import sys
+
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+from comandos import setup_commands
 
 load_dotenv()
 
@@ -27,21 +31,23 @@ intents.guilds = True
 bot = commands.Bot(command_prefix='!', intents=intents)
 tree = bot.tree  # Para facilitar o uso dos comandos de barra
 
+setup_commands(tree)
+
 # Configurações do Servidor
 STATUS_CONFIG_FILE = "status_config.json"
 
 # Status rotativo para o bot (agora usando status customizado)
 BOT_STATUS_MESSAGES = [
     lambda data: f"👥 {data['players_online']} jogadores online",
-    lambda data: f"🎮 {data.get('server_ip', 'IP não configurado')}:{data.get('server_port', 'Porta não configurada')}",
-    lambda data: f"⚡ TPS: {data['tps']}"
+    lambda data: f"🎮 {data.get('server_ip', 'IP não configurado')}:{data.get('server_port', 'Porta não configurada')}"
 ]
 
 status_config = {
     "channel_id": None,
     "message_id": None,
     "server_ip": None,
-    "server_port": None
+    "server_port": None,
+    "server_online_since": None  # Novo campo para guardar o timestamp do uptime
 }
 
 # Adicionar após as outras constantes de ID
@@ -121,96 +127,62 @@ def get_players_list(status):
         return []
 
 def create_status_embed(status):
-    """Cria a embed com as informações do servidor"""
+    """Cria a embed com as informações do servidor no estilo customizado, com uptime real"""
     current_time = datetime.now(timezone.utc)
-    formatted_time = current_time.strftime('%Y-%m-%d %H:%M:%S')
     ip = status.get('server_ip', 'Não configurado')
-    port = status.get('server_port', 'Não configurado')
-    
-    if status['online']:
-        embed = discord.Embed(
-            title="🟢 Servidor Online",
-            color=discord.Color.green(),
-            timestamp=current_time
-        )
-        
-        embed.add_field(
-            name="👥 Jogadores Online",
-            value=f"{status['players_online']}/{status['players_max']}",
-            inline=True
-        )
-        
-        embed.add_field(
-            name="🌐 Servidor",
-            value=f"`{ip}:{port}`",
-            inline=True
-        )
-        
-        embed.add_field(
-            name="⚡ TPS",
-            value=f"{status['tps']}",
-            inline=True
-        )
-        
-        embed.add_field(
-            name="📊 Latência",
-            value=f"{status['latency']}ms",
-            inline=True
-        )
-        
-        embed.add_field(
-            name="🔧 Versão",
-            value=status['version'],
-            inline=True
-        )
-        
-        embed.add_field(
-            name="⏰ Horário UTC",
-            value=f"`{formatted_time}`",
-            inline=True
-        )
-
-        if status['players_list']:
-            players_text = '\n'.join(status['players_list'][:10])
-            if len(status['players_list']) > 10:
-                players_text += f"\n... e mais {len(status['players_list']) - 10} jogadores"
-            embed.add_field(
-                name="🎮 Jogadores Online",
-                value=f"```\n{players_text}\n```",
-                inline=False
-            )
-        
-        footer_text = f"Última atualização por {CURRENT_USER}"
+    version = status.get('version', 'Desconhecida')
+    jogadores_online = status.get('players_online', 0)
+    aberto = status.get('online', False)
+    # Cálculo de tempo aberto real
+    aberto_ha = "Indisponível"
+    if aberto and status_config.get('server_online_since'):
+        try:
+            dt_inicio = datetime.fromisoformat(status_config['server_online_since'])
+            delta = current_time - dt_inicio
+            horas, resto = divmod(int(delta.total_seconds()), 3600)
+            minutos, segundos = divmod(resto, 60)
+            aberto_ha = f"há {horas}h {minutos}m {segundos}s"
+        except Exception:
+            aberto_ha = "há alguns minutos"
+    if aberto:
+        footer_text = f"Aberto {aberto_ha} • Hoje às {current_time.strftime('%H:%M')}"
+        desc = f"<a:terra_animada:1374676051833393213> **Junte-se ao nossos {jogadores_online} jogadores!**"
+        color = 0xf96d18
+        thumb_url = "https://message.style/cdn/images/606911dd55630ab368fb8cb9015d832e924726d4815543670b6a84489bb396b8.png"
     else:
-        embed = discord.Embed(
-            title="🔴 Servidor Offline",
-            description="O servidor está temporariamente indisponível.",
-            color=discord.Color.red(),
-            timestamp=current_time
-        )
-        
-        embed.add_field(
-            name="🌐 Servidor",
-            value=f"`{ip}:{port}`",
-            inline=True
-        )
-        
-        embed.add_field(
-            name="⏰ Horário UTC",
-            value=f"`{formatted_time}`",
-            inline=True
-        )
-        
-        footer_text = f"Tentando reconectar... • {CURRENT_USER}"
-    
+        footer_text = f"Servidor indisponível • Hoje às {current_time.strftime('%H:%M')}"
+        desc = "<a:terra_animada:1374676051833393213> **Servidor offline ou indisponível!**"
+        color = 0x808080
+        thumb_url = "https://message.style/cdn/images/606911dd55630ab368fb8cb9015d832e924726d4815543670b6a84489bb396b8.png"
+    embed = discord.Embed(
+        title="<:letra_K:1374675650517925889> |  KRIZ SMP",
+        description=desc,
+        color=color,
+    )
     embed.set_footer(text=footer_text)
+    embed.set_thumbnail(url=thumb_url)
+    embed.add_field(
+        name="IP:",
+        value=f"```{ip}```\nVersão: **{version}**\n",
+        inline=False
+    )
     return embed
 
-@tasks.loop(minutes=2)
+@tasks.loop(seconds=20)
 async def update_server_status():
-    """Atualiza o status do servidor a cada 2 minutos"""
+    """Atualiza o status do servidor a cada 20 segundos"""
     try:
         status = await get_server_status()
+        # Se o servidor está online e não havia timestamp, salva o início do uptime
+        if status['online']:
+            if not status_config.get('server_online_since'):
+                status_config['server_online_since'] = datetime.now(timezone.utc).isoformat()
+                save_status_config()
+        else:
+            # Se ficou offline, limpa o timestamp
+            if status_config.get('server_online_since'):
+                status_config['server_online_since'] = None
+                save_status_config()
         embed = create_status_embed(status)
 
         # Atualizar mensagem configurada pelo setup_status
@@ -259,9 +231,9 @@ async def update_server_status():
     except Exception as e:
         print(f"Erro ao atualizar status: {e}")
 
-@tasks.loop(minutes=2)
+@tasks.loop(seconds=20)
 async def update_bot_status():
-    """Atualiza o status do bot"""
+    """Atualiza o status do bot a cada 20 segundos"""
     try:
         status = await get_server_status()
         if status['online']:
