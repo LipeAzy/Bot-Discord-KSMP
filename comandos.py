@@ -134,43 +134,65 @@ def setup_commands(tree: app_commands.CommandTree):
                 embed = discord.Embed(description="❌ Não foi possível buscar a música do Spotify.", color=discord.Color.red())
                 await interaction.followup.send(embed=embed)
                 return
-        ydl_opts = {
-            'format': 'bestaudio/best',
-            'quiet': True,
-            'extract_flat': False,
-            'default_search': 'ytsearch',
+        # Extrai só os links da playlist (flat) em thread separada
+        ydl_opts_flat = {
+            "extract_flat": "in_playlist",
+            "quiet": True,
+            "skip_download": True,
+            "cookiefile": "cookies.txt",
         }
-        queue = []
         try:
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(query, download=False)
-                if 'entries' in info:
-                    # Limita a 20 músicas para evitar erro de recursão
-                    for entry in info['entries'][:20]:
-                        if entry and 'url' in entry:
-                            queue.append((entry['url'], entry.get('title', 'Música')))
-                else:
-                    queue.append((info['url'], info.get('title', 'Música')))
+            import yt_dlp
+            info = await asyncio.to_thread(lambda: yt_dlp.YoutubeDL(ydl_opts_flat).extract_info(query, download=False))
+            if 'entries' in info:
+                entries = [e for e in info['entries'] if e and 'url' in e][:20]
+            else:
+                entries = [info]
         except Exception as e:
             embed = discord.Embed(description=f"❌ Erro ao buscar/tocar: {e}", color=discord.Color.red())
             await interaction.followup.send(embed=embed)
             return
-        if not queue:
+        if not entries:
             embed = discord.Embed(description="❌ Nenhuma música encontrada.", color=discord.Color.red())
             await interaction.followup.send(embed=embed)
             return
-        playlist_queues[interaction.guild.id] = queue.copy()
+        # Extrai o stream do primeiro vídeo em thread separada
+        ydl_opts = {
+            "format": "bestaudio/best",
+            "quiet": True,
+            "cookiefile": "cookies.txt",
+        }
+        try:
+            import yt_dlp
+            first_info = await asyncio.to_thread(lambda: yt_dlp.YoutubeDL(ydl_opts).extract_info(entries[0]['url'], download=False))
+            first_entry = (first_info['url'], first_info.get('title', 'Música'))
+        except Exception as e:
+            embed = discord.Embed(description=f"❌ Erro ao buscar/tocar: {e}", color=discord.Color.red())
+            await interaction.followup.send(embed=embed)
+            return
+        playlist_queues[interaction.guild.id] = [first_entry]
         playlist_settings[interaction.guild.id] = playlist_settings.get(interaction.guild.id, {"loop": None, "shuffle": False, "original": []})
-        playlist_settings[interaction.guild.id]["original"] = queue.copy()
-        if len(queue) == 1:
-            embed = discord.Embed(title="🎵 Tocando agora", description=f"**{queue[0][1]}**", color=discord.Color.green())
-            await interaction.followup.send(embed=embed)
-        else:
-            embed = discord.Embed(title="🎶 Playlist adicionada!", description=f"Tocando agora: **{queue[0][1]}**", color=discord.Color.blurple())
-            await interaction.followup.send(embed=embed)
+        playlist_settings[interaction.guild.id]["original"] = [first_entry]
+        embed = discord.Embed(title="🎵 Tocando agora", description=f"**{first_entry[1]}**", color=discord.Color.green())
+        await interaction.followup.send(embed=embed)
         if not vc.is_playing():
             loop = asyncio.get_running_loop()
             await play_next(interaction, interaction.guild.id, loop)
+        # Em background, resolve os próximos vídeos e adiciona à fila
+        async def add_rest_playlist():
+            rest = []
+            for entry in entries[1:]:
+                try:
+                    import yt_dlp
+                    info = await asyncio.to_thread(lambda: yt_dlp.YoutubeDL(ydl_opts).extract_info(entry['url'], download=False))
+                    rest.append((info['url'], info.get('title', 'Música')))
+                except Exception:
+                    continue
+            if rest:
+                playlist_queues[interaction.guild.id].extend(rest)
+                playlist_settings[interaction.guild.id]["original"].extend(rest)
+        if len(entries) > 1:
+            asyncio.create_task(add_rest_playlist())
 
     @tree.command(name="pular", description="Pula para a próxima música da fila.")
     async def pular_slash(interaction: discord.Interaction):

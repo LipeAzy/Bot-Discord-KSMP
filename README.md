@@ -17,7 +17,7 @@ Este bot foi desenvolvido para o **servidor de Minecraft SMP Privado Kriz SMP**,
 - **Gerenciamento de Cargos:**  
   Automatiza a troca de cargos ao registrar e ao entrar no servidor.
 - **Bot de Música Completo:**  
-  Toque músicas e playlists do YouTube, links do Spotify (busca no YouTube), controle de fila, loop (playlist/música), aleatório (shuffle), pular, parar, pausar, retomar e voltar música, tudo com mensagens em embed.
+  Toque músicas e playlists do YouTube, links do Spotify (busca no YouTube), controle de fila, loop (playlist/música), aleatório (shuffle), pular, parar, pausar, retomar e voltar música, tudo com mensagens em embed. O bot começa a tocar a primeira música da playlist imediatamente, sem esperar carregar toda a lista, garantindo resposta rápida mesmo em máquinas lentas.
 
 ---
 
@@ -29,7 +29,7 @@ Este bot foi desenvolvido para o **servidor de Minecraft SMP Privado Kriz SMP**,
 | `/setup_registro`         | Administrador       | Envia embed com botão para iniciar o registro dos membros               |
 | `/criar_vila <nome>`      | Administrador       | Cria uma vila (categoria, canais e cargo exclusivos)                    |
 | `/deletar_vila <nome>`    | Administrador       | Deleta uma vila (remove categoria, canais e cargo)                      |
-| `/tocar <link/nome>`      | Todos               | Toca música/playlist do YouTube, Spotify (busca), ou pesquisa por nome  |
+| `/tocar <link/nome>`      | Todos               | Toca música ou playlist do YouTube, Spotify (busca), ou pesquisa por nome|
 | `/entrar_call` ou `/join` | Todos               | Faz o bot entrar na call do usuário                                    |
 | `/loop <playlist/musica>` | Todos               | Ativa/desativa loop da playlist ou música atual                         |
 | `/aleatorio`              | Todos               | Ativa/desativa modo aleatório (shuffle)                                 |
@@ -47,10 +47,10 @@ Este bot foi desenvolvido para o **servidor de Minecraft SMP Privado Kriz SMP**,
 
 - Toca músicas e playlists do YouTube (streaming, sem baixar arquivos)
 - Aceita links do Spotify (faz busca automática no YouTube)
-- Suporte a playlists (fila automática)
+- Suporte a playlists (fila automática, tocando a primeira música imediatamente)
 - Comandos de controle: loop (playlist/música), aleatório (shuffle), pular, parar, pausar, retomar, voltar música
 - Mensagens do bot sempre em embed
-- Sistema de fila inteligente e tratamento de erros
+- Sistema de fila inteligente, tratamento de erros e otimização para resposta rápida mesmo em hosts lentos
 
 ---
 
