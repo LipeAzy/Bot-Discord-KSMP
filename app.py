@@ -1,6 +1,6 @@
 import discord
 from discord.ext import commands
-from discord import ui
+from discord import ui, app_commands
 import os
 from dotenv import load_dotenv
 from datetime import datetime
@@ -24,9 +24,8 @@ intents.message_content = True
 intents.members = True
 intents.guilds = True
 
-
-
 bot = commands.Bot(command_prefix='!', intents=intents)
+tree = bot.tree  # Para facilitar o uso dos comandos de barra
 
 # Configurações do Servidor
 MINECRAFT_SERVER_IP = "enx-cirion-48.enx.host"
@@ -265,10 +264,12 @@ async def update_bot_status():
     except Exception as e:
         print(f"Erro ao atualizar status do bot: {e}")
 
-@bot.command()
-@commands.has_permissions(administrator=True)
-async def setup_status(ctx):
-    """Configura a mensagem de status inicial"""
+# --- Comando de barra: setup_status ---
+@tree.command(name="setup_status", description="Configura a mensagem de status inicial")
+@app_commands.checks.has_permissions(administrator=True)
+async def setup_status_slash(interaction: discord.Interaction):
+    await interaction.response.defer(thinking=True)  # Defer para evitar timeout
+
     if status_config["channel_id"] and status_config["message_id"]:
         try:
             old_channel = bot.get_channel(status_config["channel_id"])
@@ -283,14 +284,13 @@ async def setup_status(ctx):
 
     status = await get_server_status()
     embed = create_status_embed(status)
+    message = await interaction.channel.send(embed=embed)
     
-    message = await ctx.send(embed=embed)
-    
-    status_config["channel_id"] = ctx.channel.id
+    status_config["channel_id"] = interaction.channel.id
     status_config["message_id"] = message.id
     save_status_config()
-    
-    await ctx.send("✅ Status configurado com sucesso!", delete_after=5)
+
+    await interaction.followup.send("✅ Status configurado com sucesso!", ephemeral=True)
 
 # IDs dos cargos e canal
 CARGO_NAO_REGISTRADO = 1370692084159484055
@@ -371,13 +371,14 @@ class BotaoRegistro(ui.View):
         modal = RegistroModal()
         await interaction.response.send_modal(modal)
 
-@bot.command()
-@commands.has_permissions(administrator=True)
-async def criar_vila(ctx, *, nome_vila: str):
-    """Cria uma nova vila com categoria, canais e cargo exclusivo."""
-    producao_role = ctx.guild.get_role(PRODUCAO_ROLE_ID)
-    if producao_role not in ctx.author.roles:
-        await ctx.send("❌ Você não tem permissão para criar vilas.")
+# --- Comando de barra: criar_vila ---
+@tree.command(name="criar_vila", description="Cria uma nova vila com categoria, canais e cargo exclusivo.")
+@app_commands.describe(nome_vila="Nome da vila")
+@app_commands.checks.has_permissions(administrator=True)
+async def criar_vila_slash(interaction: discord.Interaction, nome_vila: str):
+    producao_role = interaction.guild.get_role(PRODUCAO_ROLE_ID)
+    if producao_role not in interaction.user.roles:
+        await interaction.response.send_message("❌ Você não tem permissão para criar vilas.", ephemeral=True)
         return
 
     nome_vila_formatado = nome_vila.strip().title()
@@ -387,111 +388,77 @@ async def criar_vila(ctx, *, nome_vila: str):
     nome_comandos = "💻┇comandos"
     nome_voice = f"🎤┇{nome_vila_formatado}"
 
-    # Cria o cargo da vila
-    cargo_vila = await ctx.guild.create_role(name=nome_cargo, mentionable=True)
-    
-    # Permissões: só o cargo da vila e admins podem ver
+    cargo_vila = await interaction.guild.create_role(name=nome_cargo, mentionable=True)
     overwrites = {
-        ctx.guild.default_role: discord.PermissionOverwrite(view_channel=False),
+        interaction.guild.default_role: discord.PermissionOverwrite(view_channel=False),
         cargo_vila: discord.PermissionOverwrite(view_channel=True, send_messages=True, connect=True, speak=True),
-        ctx.guild.me: discord.PermissionOverwrite(view_channel=True, send_messages=True, manage_channels=True)
+        interaction.guild.me: discord.PermissionOverwrite(view_channel=True, send_messages=True, manage_channels=True)
     }
-    producao_role = ctx.guild.get_role(PRODUCAO_ROLE_ID)
     if producao_role:
         overwrites[producao_role] = discord.PermissionOverwrite(view_channel=True, send_messages=True, manage_channels=True)
 
-    # Cria a categoria (posição será ajustada depois)
-    categoria = await ctx.guild.create_category(name=nome_categoria, overwrites=overwrites)
-
-    # Cria os canais
+    categoria = await interaction.guild.create_category(name=nome_categoria, overwrites=overwrites)
     await categoria.create_text_channel(nome_chat)
     await categoria.create_text_channel(nome_comandos)
     await categoria.create_voice_channel(nome_voice)
 
-    # Move a categoria para logo abaixo da categoria de referência
-    categoria_referencia = ctx.guild.get_channel(1370678132515803228)
+    categoria_referencia = interaction.guild.get_channel(1370678132515803228)
     if categoria_referencia:
         nova_posicao = categoria_referencia.position + 1
         await categoria.edit(position=nova_posicao)
 
-    await ctx.send(f"✅ Vila criada com sucesso!\nCargo: {cargo_vila.mention}\nCategoria: {categoria.name}")
+    await interaction.response.send_message(f"✅ Vila criada com sucesso!\nCargo: {cargo_vila.mention}\nCategoria: {categoria.name}")
 
-    # Envia log no canal de registros
-    canal_log = ctx.guild.get_channel(CANAL_LOG_VILAS)
+    canal_log = interaction.guild.get_channel(CANAL_LOG_VILAS)
     if canal_log:
         embed = discord.Embed(
             title="🏗️ Vila Criada",
-            description=f"**Nome:** {nome_vila_formatado}\n**Cargo:** {cargo_vila.mention}\n**Categoria:** {categoria.name}\n**Responsável:** {ctx.author.mention}",
+            description=f"**Nome:** {nome_vila_formatado}\n**Cargo:** {cargo_vila.mention}\n**Categoria:** {categoria.name}\n**Responsável:** {interaction.user.mention}",
             color=discord.Color.green(),
             timestamp=datetime.now(timezone.utc)
         )
         await canal_log.send(embed=embed)
 
-@bot.command()
-@commands.has_permissions(administrator=True)
-async def deletar_vila(ctx, *, nome_vila: str):
-    """Deleta a vila, removendo categoria, canais e cargo."""
-    producao_role = ctx.guild.get_role(PRODUCAO_ROLE_ID)
-    if producao_role not in ctx.author.roles:
-        await ctx.send("❌ Você não tem permissão para deletar vilas.")
+# --- Comando de barra: deletar_vila ---
+@tree.command(name="deletar_vila", description="Deleta a vila, removendo categoria, canais e cargo.")
+@app_commands.describe(nome_vila="Nome da vila")
+@app_commands.checks.has_permissions(administrator=True)
+async def deletar_vila_slash(interaction: discord.Interaction, nome_vila: str):
+    producao_role = interaction.guild.get_role(PRODUCAO_ROLE_ID)
+    if producao_role not in interaction.user.roles:
+        await interaction.response.send_message("❌ Você não tem permissão para deletar vilas.", ephemeral=True)
         return
 
     nome_vila_formatado = nome_vila.strip().title()
     nome_cargo = f"▪︎ 𝐕𝐢𝐥𝐚 {nome_vila_formatado} ▪︎"
     nome_categoria = f"🛖 | Vila {nome_vila_formatado}"
 
-    # Deleta cargo
-    cargo = discord.utils.get(ctx.guild.roles, name=nome_cargo)
+    cargo = discord.utils.get(interaction.guild.roles, name=nome_cargo)
     if cargo:
         await cargo.delete()
 
-    # Deleta categoria e canais
-    categoria = discord.utils.get(ctx.guild.categories, name=nome_categoria)
+    categoria = discord.utils.get(interaction.guild.categories, name=nome_categoria)
     if categoria:
         for canal in categoria.channels:
             await canal.delete()
         await categoria.delete()
 
-    await ctx.send(f"🗑️ Vila '{nome_vila_formatado}' deletada com sucesso!")
+    await interaction.response.send_message(f"🗑️ Vila '{nome_vila_formatado}' deletada com sucesso!")
 
-    # Envia log no canal de registros
-    canal_log = ctx.guild.get_channel(CANAL_LOG_VILAS)
+    canal_log = interaction.guild.get_channel(CANAL_LOG_VILAS)
     if canal_log:
         embed = discord.Embed(
             title="🗑️ Vila Deletada",
-            description=f"**Nome:** {nome_vila_formatado}\n**Responsável:** {ctx.author.mention}",
+            description=f"**Nome:** {nome_vila_formatado}\n**Responsável:** {interaction.user.mention}",
             color=discord.Color.red(),
             timestamp=datetime.now(timezone.utc)
         )
         await canal_log.send(embed=embed)
 
-@bot.event
-async def on_ready():
-    print(f'Bot {bot.user.name} está online!')
-    print(f'ID do Bot: {bot.user.id}')
-    print(f'Current Date and Time (UTC): {CURRENT_TIME}')
-    print(f'Current User\'s Login: {CURRENT_USER}')
-    print('='*30)
-    
-    # Carregar configurações e iniciar tasks
-    load_status_config()
-    bot.add_view(BotaoRegistro())
-    
-    if not update_server_status.is_running():
-        update_server_status.start()
-    if not update_bot_status.is_running():
-        update_bot_status.start()
-
-@bot.event
-async def on_member_join(member):
-    cargo = member.guild.get_role(CARGO_NAO_REGISTRADO)
-    if cargo:
-        await member.add_roles(cargo)
-        print(f"Cargo 'Não Registrado' adicionado para {member.name}")
-
-@bot.command()
-@commands.has_permissions(administrator=True)
-async def setup_registro(ctx):
+# --- Comando de barra: setup_registro ---
+@tree.command(name="setup_registro", description="Envia o painel de registro no canal atual")
+@app_commands.checks.has_permissions(administrator=True)
+async def setup_registro_slash(interaction: discord.Interaction):
     embed = discord.Embed(
         title="🎮 Sistema de Registro",
         description="Clique no botão abaixo para iniciar seu registro no servidor!",
@@ -514,7 +481,38 @@ async def setup_registro(ctx):
     )
     embed.set_footer(text="Clique no botão verde abaixo para começar!")
     
-    await ctx.send(embed=embed, view=BotaoRegistro())
+    await interaction.response.send_message(embed=embed, view=BotaoRegistro())
+
+@bot.event
+async def on_ready():
+    print(f'Bot {bot.user.name} está online!')
+    print(f'ID do Bot: {bot.user.id}')
+    print(f'Current Date and Time (UTC): {CURRENT_TIME}')
+    print(f'Current User\'s Login: {CURRENT_USER}')
+    print('='*30)
+    
+    # Carregar configurações e iniciar tasks
+    load_status_config()
+    bot.add_view(BotaoRegistro())
+    
+    if not update_server_status.is_running():
+        update_server_status.start()
+    if not update_bot_status.is_running():
+        update_bot_status.start()
+    
+    # Sincronizar comandos de barra
+    try:
+        synced = await tree.sync()
+        print(f"Comandos de barra sincronizados: {len(synced)}")
+    except Exception as e:
+        print(f"Erro ao sincronizar comandos de barra: {e}")
+
+@bot.event
+async def on_member_join(member):
+    cargo = member.guild.get_role(CARGO_NAO_REGISTRADO)
+    if cargo:
+        await member.add_roles(cargo)
+        print(f"Cargo 'Não Registrado' adicionado para {member.name}")
 
 if __name__ == "__main__":
     bot.run(os.getenv('DISCORD_TOKEN'))
