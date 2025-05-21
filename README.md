@@ -25,8 +25,8 @@ Este bot foi desenvolvido para o **servidor de Minecraft SMP Privado Kriz SMP**,
 |---------------------------|---------------------|------------------------------------------------------------------------|
 | `/setup_status`           | Administrador       | Configura a mensagem de status do servidor Minecraft no canal atual     |
 | `/setup_registro`         | Administrador       | Envia embed com botão para iniciar o registro dos membros               |
-| `/criar_vila <nome>`      | Produção/Admin      | Cria uma vila (categoria, canais e cargo exclusivos)                    |
-| `/deletar_vila <nome>`    | Produção/Admin      | Deleta uma vila (remove categoria, canais e cargo)                      |
+| `/criar_vila <nome>`      | Administrador       | Cria uma vila (categoria, canais e cargo exclusivos)                    |
+| `/deletar_vila <nome>`    | Administrador       | Deleta uma vila (remove categoria, canais e cargo)                      |
 
 > **Observação:** Todos os comandos agora são feitos via barra (slash), não mais com prefixo `!`.
 
