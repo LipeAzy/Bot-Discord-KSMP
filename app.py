@@ -28,20 +28,20 @@ bot = commands.Bot(command_prefix='!', intents=intents)
 tree = bot.tree  # Para facilitar o uso dos comandos de barra
 
 # Configurações do Servidor
-MINECRAFT_SERVER_IP = "enx-cirion-48.enx.host"
-MINECRAFT_SERVER_PORT = 10047
 STATUS_CONFIG_FILE = "status_config.json"
 
 # Status rotativo para o bot (agora usando status customizado)
 BOT_STATUS_MESSAGES = [
     lambda data: f"👥 {data['players_online']} jogadores online",
-    lambda data: f"🎮 {MINECRAFT_SERVER_IP}:{MINECRAFT_SERVER_PORT}",
+    lambda data: f"🎮 {data.get('server_ip', 'IP não configurado')}:{data.get('server_port', 'Porta não configurada')}",
     lambda data: f"⚡ TPS: {data['tps']}"
 ]
 
 status_config = {
     "channel_id": None,
-    "message_id": None
+    "message_id": None,
+    "server_ip": None,
+    "server_port": None
 }
 
 # Adicionar após as outras constantes de ID
@@ -65,10 +65,18 @@ def save_status_config():
     except Exception as e:
         print(f"Erro ao salvar configuração: {e}")
 
+def get_server_ip_port():
+    ip = status_config.get("server_ip")
+    port = status_config.get("server_port")
+    if not ip or not port:
+        raise ValueError("Servidor Minecraft não configurado. Use /configurar_servidor.")
+    return ip, int(port)
+
 async def get_server_status():
     """Função para obter o status do servidor Minecraft"""
     try:
-        server = JavaServer(MINECRAFT_SERVER_IP, MINECRAFT_SERVER_PORT)
+        ip, port = get_server_ip_port()
+        server = JavaServer(ip, port)
         status = await server.async_status()
         
         # Tentar obter TPS via query
@@ -85,7 +93,9 @@ async def get_server_status():
             'version': status.version.name,
             'latency': round(status.latency, 1),
             'tps': tps,
-            'players_list': get_players_list(status)
+            'players_list': get_players_list(status),
+            'server_ip': ip,
+            'server_port': port
         }
     except Exception as e:
         print(f"Erro ao obter status do servidor: {e}")
@@ -96,7 +106,9 @@ async def get_server_status():
             'version': 'Desconhecida',
             'latency': 0,
             'tps': 'N/A',
-            'players_list': []
+            'players_list': [],
+            'server_ip': status_config.get('server_ip', 'Não configurado'),
+            'server_port': status_config.get('server_port', 'Não configurado')
         }
 
 def get_players_list(status):
@@ -112,6 +124,8 @@ def create_status_embed(status):
     """Cria a embed com as informações do servidor"""
     current_time = datetime.now(timezone.utc)
     formatted_time = current_time.strftime('%Y-%m-%d %H:%M:%S')
+    ip = status.get('server_ip', 'Não configurado')
+    port = status.get('server_port', 'Não configurado')
     
     if status['online']:
         embed = discord.Embed(
@@ -128,7 +142,7 @@ def create_status_embed(status):
         
         embed.add_field(
             name="🌐 Servidor",
-            value=f"`{MINECRAFT_SERVER_IP}:{MINECRAFT_SERVER_PORT}`",
+            value=f"`{ip}:{port}`",
             inline=True
         )
         
@@ -177,7 +191,7 @@ def create_status_embed(status):
         
         embed.add_field(
             name="🌐 Servidor",
-            value=f"`{MINECRAFT_SERVER_IP}:{MINECRAFT_SERVER_PORT}`",
+            value=f"`{ip}:{port}`",
             inline=True
         )
         
@@ -291,6 +305,16 @@ async def setup_status_slash(interaction: discord.Interaction):
     save_status_config()
 
     await interaction.followup.send("✅ Status configurado com sucesso!", ephemeral=True)
+
+# Comando slash para configurar o servidor Minecraft
+@tree.command(name="configurar_servidor", description="Configura o IP e a porta do servidor Minecraft.")
+@app_commands.describe(ip="IP do servidor", porta="Porta do servidor")
+@app_commands.checks.has_permissions(administrator=True)
+async def configurar_servidor_slash(interaction: discord.Interaction, ip: str, porta: int):
+    status_config["server_ip"] = ip
+    status_config["server_port"] = porta
+    save_status_config()
+    await interaction.response.send_message(f"✅ Servidor configurado para `{ip}:{porta}`.", ephemeral=True)
 
 # IDs dos cargos e canal
 CARGO_NAO_REGISTRADO = 1370692084159484055
