@@ -24,6 +24,8 @@ intents.message_content = True
 intents.members = True
 intents.guilds = True
 
+
+
 bot = commands.Bot(command_prefix='!', intents=intents)
 
 # Configurações do Servidor
@@ -45,6 +47,8 @@ status_config = {
 
 # Adicionar após as outras constantes de ID
 CANAL_STATUS_ADICIONAL = 1370669650559373322
+PRODUCAO_ROLE_ID = 1371248255954063392
+CANAL_LOG_VILAS = 1370693091102556262  # Canal para logs de vilas
 
 def load_status_config():
     global status_config
@@ -205,13 +209,23 @@ async def update_server_status():
                         message = await channel.fetch_message(status_config["message_id"])
                         await message.edit(embed=embed)
                     except discord.NotFound:
+                        # Mensagem não encontrada, envia nova e atualiza o config
                         message = await channel.send(embed=embed)
                         status_config["message_id"] = message.id
                         save_status_config()
             except Exception as e:
                 print(f"Erro ao atualizar status no canal principal: {e}")
 
-        # Atualizar canal adicional
+        else:
+            # Se não há configuração, envia nova mensagem e salva
+            channel = bot.get_channel(CANAL_STATUS_ADICIONAL)
+            if channel:
+                message = await channel.send(embed=embed)
+                status_config["channel_id"] = channel.id
+                status_config["message_id"] = message.id
+                save_status_config()
+
+        # Atualizar canal adicional (opcional, pode remover se não quiser duplicidade)
         try:
             canal_adicional = bot.get_channel(CANAL_STATUS_ADICIONAL)
             if canal_adicional:
@@ -357,6 +371,100 @@ class BotaoRegistro(ui.View):
         modal = RegistroModal()
         await interaction.response.send_modal(modal)
 
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def criar_vila(ctx, *, nome_vila: str):
+    """Cria uma nova vila com categoria, canais e cargo exclusivo."""
+    producao_role = ctx.guild.get_role(PRODUCAO_ROLE_ID)
+    if producao_role not in ctx.author.roles:
+        await ctx.send("❌ Você não tem permissão para criar vilas.")
+        return
+
+    nome_vila_formatado = nome_vila.strip().title()
+    nome_cargo = f"▪︎ 𝐕𝐢𝐥𝐚 {nome_vila_formatado} ▪︎"
+    nome_categoria = f"🛖 | Vila {nome_vila_formatado}"
+    nome_chat = "💬┇chat"
+    nome_comandos = "💻┇comandos"
+    nome_voice = f"🎤┇{nome_vila_formatado}"
+
+    # Cria o cargo da vila
+    cargo_vila = await ctx.guild.create_role(name=nome_cargo, mentionable=True)
+    
+    # Permissões: só o cargo da vila e admins podem ver
+    overwrites = {
+        ctx.guild.default_role: discord.PermissionOverwrite(view_channel=False),
+        cargo_vila: discord.PermissionOverwrite(view_channel=True, send_messages=True, connect=True, speak=True),
+        ctx.guild.me: discord.PermissionOverwrite(view_channel=True, send_messages=True, manage_channels=True)
+    }
+    producao_role = ctx.guild.get_role(PRODUCAO_ROLE_ID)
+    if producao_role:
+        overwrites[producao_role] = discord.PermissionOverwrite(view_channel=True, send_messages=True, manage_channels=True)
+
+    # Cria a categoria (posição será ajustada depois)
+    categoria = await ctx.guild.create_category(name=nome_categoria, overwrites=overwrites)
+
+    # Cria os canais
+    await categoria.create_text_channel(nome_chat)
+    await categoria.create_text_channel(nome_comandos)
+    await categoria.create_voice_channel(nome_voice)
+
+    # Move a categoria para logo abaixo da categoria de referência
+    categoria_referencia = ctx.guild.get_channel(1370678132515803228)
+    if categoria_referencia:
+        nova_posicao = categoria_referencia.position + 1
+        await categoria.edit(position=nova_posicao)
+
+    await ctx.send(f"✅ Vila criada com sucesso!\nCargo: {cargo_vila.mention}\nCategoria: {categoria.name}")
+
+    # Envia log no canal de registros
+    canal_log = ctx.guild.get_channel(CANAL_LOG_VILAS)
+    if canal_log:
+        embed = discord.Embed(
+            title="🏗️ Vila Criada",
+            description=f"**Nome:** {nome_vila_formatado}\n**Cargo:** {cargo_vila.mention}\n**Categoria:** {categoria.name}\n**Responsável:** {ctx.author.mention}",
+            color=discord.Color.green(),
+            timestamp=datetime.now(timezone.utc)
+        )
+        await canal_log.send(embed=embed)
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def deletar_vila(ctx, *, nome_vila: str):
+    """Deleta a vila, removendo categoria, canais e cargo."""
+    producao_role = ctx.guild.get_role(PRODUCAO_ROLE_ID)
+    if producao_role not in ctx.author.roles:
+        await ctx.send("❌ Você não tem permissão para deletar vilas.")
+        return
+
+    nome_vila_formatado = nome_vila.strip().title()
+    nome_cargo = f"▪︎ 𝐕𝐢𝐥𝐚 {nome_vila_formatado} ▪︎"
+    nome_categoria = f"🛖 | Vila {nome_vila_formatado}"
+
+    # Deleta cargo
+    cargo = discord.utils.get(ctx.guild.roles, name=nome_cargo)
+    if cargo:
+        await cargo.delete()
+
+    # Deleta categoria e canais
+    categoria = discord.utils.get(ctx.guild.categories, name=nome_categoria)
+    if categoria:
+        for canal in categoria.channels:
+            await canal.delete()
+        await categoria.delete()
+
+    await ctx.send(f"🗑️ Vila '{nome_vila_formatado}' deletada com sucesso!")
+
+    # Envia log no canal de registros
+    canal_log = ctx.guild.get_channel(CANAL_LOG_VILAS)
+    if canal_log:
+        embed = discord.Embed(
+            title="🗑️ Vila Deletada",
+            description=f"**Nome:** {nome_vila_formatado}\n**Responsável:** {ctx.author.mention}",
+            color=discord.Color.red(),
+            timestamp=datetime.now(timezone.utc)
+        )
+        await canal_log.send(embed=embed)
+
 @bot.event
 async def on_ready():
     print(f'Bot {bot.user.name} está online!')
@@ -408,4 +516,5 @@ async def setup_registro(ctx):
     
     await ctx.send(embed=embed, view=BotaoRegistro())
 
-bot.run(os.getenv('DISCORD_TOKEN'))
+if __name__ == "__main__":
+    bot.run(os.getenv('DISCORD_TOKEN'))
