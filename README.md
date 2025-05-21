@@ -1,6 +1,6 @@
-# Bot-Discord-Emolok
+# Bot-Discord-KSMP
 
-Este bot foi desenvolvido para o **servidor de Minecraft SMP Privado Emolok**, um ambiente exclusivo para amigos, com foco em diversão, Roleplay (RP), eventos MDOS e integração entre os membros. O servidor não possui fins lucrativos e é criado e gerenciado pelo grupo de amigos **Lunatics**.
+Este bot foi desenvolvido para o **servidor de Minecraft SMP Privado Kriz SMP**, um ambiente exclusivo para amigos, com foco em diversão, Roleplay (RP), eventos MDOS e integração entre os membros. O servidor não possui fins lucrativos e é criado e gerenciado pelo grupo de amigos **Lunatics**.
 
 ---
 
